@@ -194,7 +194,7 @@ class LiquidityGrabDetector:
 
 def main():
     # 1) Préparer les données
-    data = MarketData(filename="BTCUSDT_4h.csv")
+    data = MarketData(filename="BTCUSDT_15m.csv")
     data.load_data()
     df = data.get_data()
 
