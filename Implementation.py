@@ -194,7 +194,8 @@ class LiquidityGrabDetector:
 
 def main():
     # 1) Préparer les données
-    data = MarketData(filename="BTCUSDT_1w.csv")
+    portfolio=1000
+    data = MarketData(filename="BTCUSDT_15m.csv")
     data.load_data()
     df = data.get_data()
 
@@ -223,8 +224,10 @@ def main():
     
     # Calcul du profit net en % du capital (gain = +2%, perte = -1%)
     net_profit_percent = wins * 2 - losses * 1
+    portfolio_value=portfolio+portfolio*net_profit_percent/100
 
     print("=== Résultats de la simulation ===")
+    print("Valeur du portfeuille a n :{}".format(portfolio))
     print(f"Nombre total de trades simulés : {total_trades}")
     print(f"Trades gagnants : {wins}")
     print(f"Trades perdants : {losses}")
@@ -232,6 +235,7 @@ def main():
     if total_trades > 0:
         print(f"Taux de réussite : {wins / total_trades * 100:.2f}%")
         print(f"Profit net en % du capital : {net_profit_percent:.2f}%")
+        print("valeur du portfeuille : {}".format(portfolio_value))
 
     plt.show()
 

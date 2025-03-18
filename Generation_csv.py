@@ -5,7 +5,7 @@ import time
 
 # Paramètres
 symbol = "BTCUSDT"  # La paire de trading
-interval = "1w"    # Intervalle des bougies
+interval = "4h"    # Intervalle des bougies
 limit = 1000        # Limite maximale par requête (fixe par l'API Binance)
 max_candles = 20000  # Nombre de bougies souhaité
 
