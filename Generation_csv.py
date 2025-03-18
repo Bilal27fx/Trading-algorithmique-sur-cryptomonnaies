@@ -2,18 +2,17 @@ import requests
 import csv
 import os
 import time
-import datetime
 
 # Paramètres
 symbol = "BTCUSDT"  # La paire de trading
-interval = "15m"    # Intervalle des bougies
+interval = "1w"    # Intervalle des bougies
 limit = 1000        # Limite maximale par requête (fixe par l'API Binance)
 max_candles = 20000  # Nombre de bougies souhaité
 
 # Initialisation
 all_data = []
-# Vous pouvez définir un startTime personnalisé (ici, début epoch). Pour récupérer depuis une date précise, convertissez-la en timestamp.
-start_time = 0  
+current_time = int(time.time() * 1000)  # Timestamp actuel en millisecondes
+start_time = current_time - (max_candles * 15 * 60 * 1000)  # Timestamp des 20 000 dernières bougies
 
 while len(all_data) < max_candles:
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}&startTime={start_time}"
