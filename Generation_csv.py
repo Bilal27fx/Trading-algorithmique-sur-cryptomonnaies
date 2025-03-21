@@ -5,9 +5,9 @@ import time
 
 # Paramètres
 symbol = "BTCUSDT"  # La paire de trading
-interval = "4h"    # Intervalle des bougies
+interval = "15m"    # Intervalle des bougies
 limit = 1000        # Limite maximale par requête (fixe par l'API Binance)
-max_candles = 20000  # Nombre de bougies souhaité
+max_candles = 100000  # Nombre de bougies souhaité
 
 # Initialisation
 all_data = []
@@ -18,7 +18,6 @@ while len(all_data) < max_candles:
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}&startTime={start_time}"
     response = requests.get(url)
     data = response.json()
-
     if not data:
         print("Plus de données disponibles.")
         break

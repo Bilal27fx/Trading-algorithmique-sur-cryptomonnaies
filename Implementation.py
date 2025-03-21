@@ -51,7 +51,7 @@ class LiquidityGrabDetector:
         self.valid_liquidity_grabs_lows = None
         self.r_percent = r_percent  # Risque fixé à 1%
 
-    def detect_major_swing_points(self, window=15, min_variation=0.01):
+    def detect_major_swing_points(self, window=20, min_variation=0.01):
         """
         Détecte les swings hauts et bas majeurs.
         Retourne deux Series booléennes : swing_highs et swing_lows.
@@ -89,7 +89,7 @@ class LiquidityGrabDetector:
 
         return reintegrated_high or reintegrated_low
 
-    def run_detection(self, window=20, min_variation=0.02, lookback_swing=50, lookback_reintegration=3):
+    def run_detection(self, window=100, min_variation=0.02, lookback_swing=150, lookback_reintegration=3):
         """
         Lance le processus de détection :
          - Détecte les swings majeurs
@@ -201,7 +201,7 @@ def main():
 
     # 2) Détecter les signaux de prise de liquidité
     detector = LiquidityGrabDetector(df, r_percent=0.01)
-    detector.run_detection(window=20, min_variation=0.02, lookback_swing=50, lookback_reintegration=3)
+    detector.run_detection(window=100, min_variation=0.02, lookback_swing=150, lookback_reintegration=3)
 
     # 3) Tracer le graphique avec annotations
     alines, colors = detector.get_alines_for_plot()
