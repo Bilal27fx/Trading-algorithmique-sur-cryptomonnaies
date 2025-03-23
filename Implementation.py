@@ -2,9 +2,9 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
-from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
 
 # ✅ 1. Charger les données des actifs
 assets_results = [
@@ -44,12 +44,14 @@ def adjust_allocations(index, new_value):
             allocations[other_indices] = remaining / len(other_indices)
     st.session_state.allocations = allocations
 
-# ✅ Entraînement d'un modèle RandomForest pour améliorer la prédiction
+# ✅ Optimisation avancée de l'IA
 X = df[["Sharpe Ratio", "Sortino Ratio", "Win Rate (%)", "Loss Rate (%)", "Profit-Loss Ratio", "Drawdown (%)"]]
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
-y = np.where(df["Sharpe Ratio"] > df["Sharpe Ratio"].median(), 1, 0)  # 1 = Bonne allocation, 0 = Mauvaise
-model = RandomForestClassifier(n_estimators=100, random_state=42)
+y = np.where(df["Sharpe Ratio"] > df["Sharpe Ratio"].median(), 1, 0)
+
+# Utilisation de Gradient Boosting pour améliorer la précision
+model = GradientBoostingClassifier(n_estimators=200, learning_rate=0.05, max_depth=3, random_state=42)
 model.fit(X_scaled, y)
 
 def predict_best_allocations():
@@ -73,8 +75,11 @@ portfolio_metrics = {metric: np.dot(df[metric], df["User Allocation"]) for metri
 # ✅ Affichage des performances
 st.subheader("📊 Performance du Portefeuille Personnalisé")
 st.dataframe(pd.DataFrame(portfolio_metrics, index=["Valeurs"]).T, width=1500)
-
 fig = go.Figure()
+
+net_profit = df["Net Profit (%)"]
+min_np = net_profit.min()
+max_np = net_profit.max()
 
 for i, asset in enumerate(df["Asset"]):
     fig.add_trace(go.Scatter3d(
@@ -82,22 +87,89 @@ for i, asset in enumerate(df["Asset"]):
         y=[df["Sharpe Ratio"][i]],
         z=[df["Drawdown (%)"][i]],
         mode='markers',
-        marker=dict(size=7),
-        name=asset
+        marker=dict(
+            size=10,                   # Taille fixe pour tous les points
+            color=net_profit[i],       # Couleur basée sur Net Profit
+            cmin=min_np,               # Min global
+            cmax=max_np,               # Max global
+            colorscale='Plasma',       # Palette adaptée au fond sombre
+            showscale=False            # Désactive la barre de couleurs
+        ),
+        name=asset,
+        text=(
+            f"<b>{asset}</b><br>"
+            f"Net Profit: {net_profit[i]}%<br>"
+            f"Allocation: {df['User Allocation'][i]:.2f}<br>"
+            f"Sharpe Ratio: {df['Sharpe Ratio'][i]:.3f}<br>"
+            f"Drawdown: {df['Drawdown (%)'][i]}%"
+        ),
+        hoverinfo='text'
     ))
 
 fig.update_layout(
-    title="📊 Allocation vs Sharpe Ratio vs Drawdown",
+    title="Graphique 3D sans colorbar (taille fixe des points)",
+    template="plotly_dark",  # Fond sombre
     scene=dict(
-        xaxis_title="Allocation (%)",
-        yaxis_title="Sharpe Ratio",
-        zaxis_title="Drawdown (%)",
-        xaxis=dict(range=[0, 1]),
-        yaxis=dict(range=[df["Sharpe Ratio"].min() - 0.2, df["Sharpe Ratio"].max() + 0.2]),
-        zaxis=dict(range=[df["Drawdown (%)"].min() - 2, df["Drawdown (%)"].max() + 2])
+        xaxis=dict(
+            title="Allocation (%)",
+            backgroundcolor="black",
+            gridcolor="gray",
+            showbackground=True
+        ),
+        yaxis=dict(
+            title="Sharpe Ratio",
+            backgroundcolor="black",
+            gridcolor="gray",
+            showbackground=True
+        ),
+        zaxis=dict(
+            title="Drawdown (%)",
+            backgroundcolor="black",
+            gridcolor="gray",
+            showbackground=True
+        ),
+        camera=dict(
+            eye=dict(x=1.5, y=1.5, z=0.8)
+        )
     ),
-    margin=dict(l=50, r=50, b=50, t=50),
-    height=600
+    margin=dict(l=0, r=0, b=0, t=50),
+    height=700
 )
 
 st.plotly_chart(fig)
+
+portfolio_net_profit = portfolio_metrics["Net Profit (%)"]
+
+# Définissez la plage de la jauge.
+# Vous pouvez la rendre dynamique en fonction de la plage possible, ou la fixer.
+min_range_gauge = 0
+max_range_gauge = 400  # Ajustez selon vos valeurs
+
+# Exemple d'amélioration des couleurs de la jauge
+gauge_fig = go.Figure(
+    go.Indicator(
+        mode="gauge+number",
+        value=portfolio_net_profit,  # Valeur du Net Profit du portefeuille
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': "Portfolio Net Profit (%)"},
+        gauge=dict(
+            axis=dict(range=[min_range_gauge, max_range_gauge]),
+            # Aiguille en blanc pour bien ressortir sur fond sombre
+            bar=dict(color="white"),  
+            # Palette du rouge (faible) au vert (élevé)
+            steps=[
+                {'range': [0, 100],  'color': '#8B0000'},   # Rouge foncé
+                {'range': [100, 200], 'color': '#eb4034'}, # Rouge clair
+                {'range': [200, 300], 'color': '#f0bd28'}, # Orange/jaune
+                {'range': [300, 400], 'color': '#3cb371'}  # Vert
+            ],
+        )
+    )
+)
+
+gauge_fig.update_layout(
+    template="plotly_dark",
+    margin=dict(l=20, r=20, t=60, b=20)
+)
+
+st.plotly_chart(gauge_fig)
