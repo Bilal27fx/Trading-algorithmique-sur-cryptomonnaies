@@ -1,243 +1,103 @@
 import pandas as pd
-import mplfinance as mpf
 import numpy as np
-import matplotlib.pyplot as plt  # Pour afficher le graphique
+import streamlit as st
+import plotly.graph_objects as go
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
 
-class MarketData:
-    """
-    Gère le chargement et la préparation des données depuis un fichier CSV.
-    """
-    def __init__(self, filename: str):
-        self.filename = filename
-        self.df = None
+# ✅ 1. Charger les données des actifs
+assets_results = [
+    {"Asset": "EURUSD", "Net Profit (%)": 13.174, "Compounding Annual Return (%)": 1.247, "Sharpe Ratio": -0.246, "Sortino Ratio": -0.185, "Win Rate (%)": 65, "Loss Rate (%)": 35, "Profit-Loss Ratio": 1.08, "Drawdown (%)": 10.8, "Beta": 0.013, "Alpha": -0.013, "Annual Standard Deviation": 0.049, "Information Ratio": -0.595},
+    {"Asset": "BTCUSD", "Net Profit (%)": 367.415, "Compounding Annual Return (%)": 16.699, "Sharpe Ratio": 0.954, "Sortino Ratio": 1.036, "Win Rate (%)": 90, "Loss Rate (%)": 10, "Profit-Loss Ratio": 1.18, "Drawdown (%)": 16.2, "Beta": 0.054, "Alpha": 0.092, "Annual Standard Deviation": 0.101, "Information Ratio": 0.102},
+    {"Asset": "ETHUSD", "Net Profit (%)": 234.741, "Compounding Annual Return (%)": 12.862, "Sharpe Ratio": 0.868, "Sortino Ratio": 0.872, "Win Rate (%)": 93, "Loss Rate (%)": 7, "Profit-Loss Ratio": 2.38, "Drawdown (%)": 10.9, "Beta": 0.064, "Alpha": 0.063, "Annual Standard Deviation": 0.079, "Information Ratio": -0.064},
+    {"Asset": "XAUUSD", "Net Profit (%)": 50.433, "Compounding Annual Return (%)": 4.174, "Sharpe Ratio": 0.128, "Sortino Ratio": 0.115, "Win Rate (%)": 76, "Loss Rate (%)": 24, "Profit-Loss Ratio": 0.71, "Drawdown (%)": 20.7, "Beta": 0.004, "Alpha": 0.009, "Annual Standard Deviation": 0.076, "Information Ratio": -0.42},
+    {"Asset": "IEF", "Net Profit (%)": 9.225, "Compounding Annual Return (%)": 0.888, "Sharpe Ratio": -0.349, "Sortino Ratio": -0.217, "Win Rate (%)": 69, "Loss Rate (%)": 31, "Profit-Loss Ratio": 1.09, "Drawdown (%)": 15.0, "Beta": -0.078, "Alpha": -0.009, "Annual Standard Deviation": 0.043, "Information Ratio": -0.574},
+    {"Asset": "SPX500USD", "Net Profit (%)": 100.015, "Compounding Annual Return (%)": 7.189, "Sharpe Ratio": 0.36, "Sortino Ratio": 0.298, "Win Rate (%)": 81, "Loss Rate (%)": 19, "Profit-Loss Ratio": 1.14, "Drawdown (%)": 16.3, "Beta": 0.289, "Alpha": 0.008, "Annual Standard Deviation": 0.087, "Information Ratio": -0.37}
+]
+df = pd.DataFrame(assets_results)
 
-    def load_data(self):
-        """
-        Charge le CSV, convertit les timestamps et met en forme le DataFrame.
-        """
-        df = pd.read_csv(self.filename)
+# ✅ Fonction pour initialiser et ajuster les allocations
+def reset_allocations():
+    st.session_state.allocations = np.ones(len(df)) / len(df)  
 
-        # Convertir les timestamps en datetime et indexer
-        df["Timestamp"] = pd.to_datetime(df["Timestamp"], unit="ms")
-        df.set_index("Timestamp", inplace=True)
+if "allocations" not in st.session_state:
+    reset_allocations()
 
-        # Convertir en float
-        for col in ["Open", "High", "Low", "Close"]:
-            df[col] = df[col].astype(float)
+if st.sidebar.button("🔄 Réinitialiser les allocations"):
+    reset_allocations()
 
-        self.df = df
+def adjust_allocations(index, new_value):
+    allocations = st.session_state.allocations
+    allocations[index] = new_value  
+    remaining = 1 - new_value  
+    other_indices = [i for i in range(len(df)) if i != index]
 
-    def get_data(self) -> pd.DataFrame:
-        """
-        Retourne le DataFrame chargé.
-        """
-        if self.df is None:
-            raise ValueError("Les données ne sont pas encore chargées. Appelez load_data() d'abord.")
-        return self.df
+    if remaining == 0:
+        allocations[other_indices] = 0
+    else:
+        total_other = sum(allocations[other_indices])
+        if total_other > 0:
+            factor = remaining / total_other
+            allocations[other_indices] *= factor
+        else:
+            allocations[other_indices] = remaining / len(other_indices)
+    st.session_state.allocations = allocations
 
+# ✅ Entraînement d'un modèle RandomForest pour améliorer la prédiction
+X = df[["Sharpe Ratio", "Sortino Ratio", "Win Rate (%)", "Loss Rate (%)", "Profit-Loss Ratio", "Drawdown (%)"]]
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+y = np.where(df["Sharpe Ratio"] > df["Sharpe Ratio"].median(), 1, 0)  # 1 = Bonne allocation, 0 = Mauvaise
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X_scaled, y)
 
-class LiquidityGrabDetector:
-    """
-    Implémente la détection des swings majeurs, des prises de liquidité
-    et la simulation de trades en utilisant une méthodologie où l'entrée se fait
-    immédiatement après la clôture de la bougie générant le signal, pendant la réintégration.
-    Le risque est fixé à 1% du prix d'entrée.
-    """
-    def __init__(self, df: pd.DataFrame, r_percent=0.01):
-        self.df = df.copy()
-        self.major_swing_highs = []
-        self.major_swing_lows = []
-        self.valid_liquidity_grabs_highs = None
-        self.valid_liquidity_grabs_lows = None
-        self.r_percent = r_percent  # Risque fixé à 1%
+def predict_best_allocations():
+    probabilities = model.predict_proba(X_scaled)[:, 1]
+    allocations = probabilities / probabilities.sum()
+    return allocations
 
-    def detect_major_swing_points(self, window=20, min_variation=0.01):
-        """
-        Détecte les swings hauts et bas majeurs.
-        Retourne deux Series booléennes : swing_highs et swing_lows.
-        """
-        highs = self.df["High"].rolling(window, center=True).max()
-        lows = self.df["Low"].rolling(window, center=True).min()
+if st.sidebar.button("💡 Générer des allocations IA"):
+    st.session_state.allocations = predict_best_allocations()
 
-        swing_highs = (self.df["High"] == highs) & ((highs - lows) > self.df["High"] * min_variation)
-        swing_lows = (self.df["Low"] == lows) & ((highs - lows) > self.df["Low"] * min_variation)
+for i, asset in enumerate(df["Asset"]):
+    new_value = st.sidebar.slider(f"{asset}", 0.0, 1.0, st.session_state.allocations[i], step=0.05, key=f"slider_{i}")
+    if new_value != st.session_state.allocations[i]:
+        adjust_allocations(i, new_value)
 
-        return swing_highs.fillna(False), swing_lows.fillna(False)
+df["User Allocation"] = st.session_state.allocations
 
-    def is_major_high(self, index, lookback=50) -> bool:
-        """
-        Vérifie si la bougie à 'index' est le plus haut sur 'lookback' périodes.
-        """
-        return self.df.loc[index, "High"] == self.df["High"].rolling(lookback).max()[index]
+# ✅ Calcul des performances du portefeuille
+portfolio_metrics = {metric: np.dot(df[metric], df["User Allocation"]) for metric in df.columns[1:]}
 
-    def is_major_low(self, index, lookback=50) -> bool:
-        """
-        Vérifie si la bougie à 'index' est le plus bas sur 'lookback' périodes.
-        """
-        return self.df.loc[index, "Low"] == self.df["Low"].rolling(lookback).min()[index]
+# ✅ Affichage des performances
+st.subheader("📊 Performance du Portefeuille Personnalisé")
+st.dataframe(pd.DataFrame(portfolio_metrics, index=["Valeurs"]).T, width=1500)
 
-    def strong_reintegration(self, index, lookback=3) -> bool:
-        """
-        Vérifie qu'il y a réintégration (c'est-à-dire que la clôture reste à l'intérieur
-        du range défini par la bougie de prise de liquidité pendant 'lookback' jours).
-        """
-        high_level = self.df.loc[index, "High"]
-        low_level = self.df.loc[index, "Low"]
+fig = go.Figure()
 
-        reintegrated_high = all(self.df.loc[index:index + pd.Timedelta(days=lookback), "Close"] < high_level)
-        reintegrated_low = all(self.df.loc[index:index + pd.Timedelta(days=lookback), "Close"] > low_level)
+for i, asset in enumerate(df["Asset"]):
+    fig.add_trace(go.Scatter3d(
+        x=[df["User Allocation"][i]],
+        y=[df["Sharpe Ratio"][i]],
+        z=[df["Drawdown (%)"][i]],
+        mode='markers',
+        marker=dict(size=7),
+        name=asset
+    ))
 
-        return reintegrated_high or reintegrated_low
+fig.update_layout(
+    title="📊 Allocation vs Sharpe Ratio vs Drawdown",
+    scene=dict(
+        xaxis_title="Allocation (%)",
+        yaxis_title="Sharpe Ratio",
+        zaxis_title="Drawdown (%)",
+        xaxis=dict(range=[0, 1]),
+        yaxis=dict(range=[df["Sharpe Ratio"].min() - 0.2, df["Sharpe Ratio"].max() + 0.2]),
+        zaxis=dict(range=[df["Drawdown (%)"].min() - 2, df["Drawdown (%)"].max() + 2])
+    ),
+    margin=dict(l=50, r=50, b=50, t=50),
+    height=600
+)
 
-    def run_detection(self, window=100, min_variation=0.02, lookback_swing=150, lookback_reintegration=3):
-        """
-        Lance le processus de détection :
-         - Détecte les swings majeurs
-         - Valide la prise de liquidité en fonction de la réintégration
-        """
-        swing_highs, swing_lows = self.detect_major_swing_points(window=window, min_variation=min_variation)
-
-        self.major_swing_highs = [
-            idx for idx in self.df[swing_highs].index if self.is_major_high(idx, lookback=lookback_swing)
-        ]
-        self.major_swing_lows = [
-            idx for idx in self.df[swing_lows].index if self.is_major_low(idx, lookback=lookback_swing)
-        ]
-
-        liquidity_grabs_highs = self.df.index.isin(self.major_swing_highs) & (self.df["Close"] < self.df["High"])
-        liquidity_grabs_lows = self.df.index.isin(self.major_swing_lows) & (self.df["Close"] > self.df["Low"])
-
-        reintegration_check = pd.Series(
-            data=self.df.index.map(lambda idx: self.strong_reintegration(idx, lookback=lookback_reintegration)),
-            index=self.df.index
-        ).fillna(False)
-
-        self.valid_liquidity_grabs_highs = liquidity_grabs_highs & reintegration_check
-        self.valid_liquidity_grabs_lows = liquidity_grabs_lows & reintegration_check
-
-    def get_alines_for_plot(self):
-        """
-        Génère les annotations (lignes) pour la visualisation avec mplfinance.
-        """
-        lines = []
-        for idx in self.df[self.valid_liquidity_grabs_highs].index:
-            lines.append(((idx, self.df.loc[idx, "High"]),
-                          (idx, self.df.loc[idx, "High"] * 1.005), 'red'))
-        for idx in self.df[self.valid_liquidity_grabs_lows].index:
-            lines.append(((idx, self.df.loc[idx, "Low"]),
-                          (idx, self.df.loc[idx, "Low"] * 0.995), 'blue'))
-        alines = [(line[0], line[1]) for line in lines]
-        colors = [line[2] for line in lines]
-        return alines, colors
-
-    def simulate_trade_outcome(self, signal_idx, entry, sl, tp, trade_type):
-        """
-        Parcourt les bougies postérieures pour déterminer si le TP ou le SL est atteint.
-        On commence à partir de la bougie suivante (après le signal).
-        En cas de double atteinte dans une même bougie, on considère le SL.
-        """
-        df_after = self.df[self.df.index > signal_idx]
-        for idx, row in df_after.iterrows():
-            if trade_type == 'long':
-                if row["Low"] <= sl:
-                    return 'loss'
-                if row["High"] >= tp:
-                    return 'win'
-            elif trade_type == 'short':
-                if row["High"] >= sl:
-                    return 'loss'
-                if row["Low"] <= tp:
-                    return 'win'
-        return 'open'
-
-    def simulate_trades(self):
-        """
-        Pour chaque signal validé, simule le trade en prenant l'entrée immédiatement
-        après la clôture de la bougie (pendant la réintégration) avec un risque fixe de 1%.
-        Renvoie la liste des trades avec leurs paramètres et résultats.
-        """
-        trades = []
-        # Trade LONG : liquidity grabs sur swing bas
-        for idx in self.df[self.valid_liquidity_grabs_lows].index:
-            candle = self.df.loc[idx]
-            entry = candle["Close"]            # Entrée au prix de clôture
-            sl = entry * (1 - self.r_percent)    # SL à -1%
-            tp = entry * (1 + 2 * self.r_percent)  # TP à +2%
-            outcome = self.simulate_trade_outcome(idx, entry, sl, tp, trade_type='long')
-            trades.append({
-                'time': idx,
-                'type': 'long',
-                'entry': entry,
-                'sl': sl,
-                'tp': tp,
-                'r': self.r_percent,
-                'outcome': outcome
-            })
-        # Trade SHORT : liquidity grabs sur swing haut
-        for idx in self.df[self.valid_liquidity_grabs_highs].index:
-            candle = self.df.loc[idx]
-            entry = candle["Close"]            # Entrée au prix de clôture
-            sl = entry * (1 + self.r_percent)    # SL à +1%
-            tp = entry * (1 - 2 * self.r_percent)  # TP à -2%
-            outcome = self.simulate_trade_outcome(idx, entry, sl, tp, trade_type='short')
-            trades.append({
-                'time': idx,
-                'type': 'short',
-                'entry': entry,
-                'sl': sl,
-                'tp': tp,
-                'r': self.r_percent,
-                'outcome': outcome
-            })
-        return trades
-
-
-def main():
-    # 1) Préparer les données
-    portfolio=1000
-    data = MarketData(filename="BTCUSDT_15m.csv")
-    data.load_data()
-    df = data.get_data()
-
-    # 2) Détecter les signaux de prise de liquidité
-    detector = LiquidityGrabDetector(df, r_percent=0.01)
-    detector.run_detection(window=100, min_variation=0.02, lookback_swing=150, lookback_reintegration=3)
-
-    # 3) Tracer le graphique avec annotations
-    alines, colors = detector.get_alines_for_plot()
-    fig, axlist = mpf.plot(df,
-                           type="candle",
-                           style="charles",
-                           volume=False,
-                           title="Stratégie Prise de Liquidité + Réintégration BTC/USDT",
-                           ylabel="Prix (USDT)",
-                           figsize=(12, 6),
-                           alines=dict(alines=alines, colors=colors),
-                           returnfig=True)
-
-    # 4) Simulation des trades sur les signaux détectés
-    trades = detector.simulate_trades()
-    total_trades = len(trades)
-    wins = sum(1 for t in trades if t['outcome'] == 'win')
-    losses = sum(1 for t in trades if t['outcome'] == 'loss')
-    opens = sum(1 for t in trades if t['outcome'] == 'open')
-    
-    # Calcul du profit net en % du capital (gain = +2%, perte = -1%)
-    net_profit_percent = wins * 2 - losses * 1
-    portfolio_value=portfolio+portfolio*net_profit_percent/100
-
-    print("=== Résultats de la simulation ===")
-    print("Valeur du portfeuille a n :{}".format(portfolio))
-    print(f"Nombre total de trades simulés : {total_trades}")
-    print(f"Trades gagnants : {wins}")
-    print(f"Trades perdants : {losses}")
-    print(f"Trades non clôturés : {opens}")
-    if total_trades > 0:
-        print(f"Taux de réussite : {wins / total_trades * 100:.2f}%")
-        print(f"Profit net en % du capital : {net_profit_percent:.2f}%")
-        print("valeur du portfeuille : {}".format(portfolio_value))
-
-    plt.show()
-
-if __name__ == "__main__":
-    main()
+st.plotly_chart(fig)
