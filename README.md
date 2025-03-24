@@ -48,5 +48,5 @@ Le projet se compose de deux grandes parties :
 1. Clonez le dépôt sur votre machine :
 
    ```bash
-   git clone https://github.com/votre-utilisateur/votre-projet.git
-   cd votre-projet
+   git clone https://github.com/Bilal27fx/Trading-algorithmique-sur-cryptomonnaies.git
+   cd Trading-algorithmique-sur-cryptomonnaies
